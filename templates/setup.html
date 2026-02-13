@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}Initial Setup — Nginx Proxy Manager{% endblock %}
+
+{% block content %}
+<div class="setup-container">
+    <div class="card-static setup-card">
+        <h1 class="setup-title">Welcome</h1>
+        <p class="setup-subtitle">Set up your first domain to get started with proxy management.</p>
+
+        <form id="setup-form" onsubmit="return false;">
+            <div id="domain-entries">
+                <!-- Domain entries will be inserted here -->
+            </div>
+
+            <button type="button" class="add-domain-link" onclick="addDomainEntry()">
+                <span id="icon-plus-add"></span>
+                Add another domain
+            </button>
+
+            <div class="setup-actions">
+                <button type="button" class="btn btn-primary" onclick="submitSetup()" id="setup-submit-btn">
+                    <span id="icon-check-setup"></span>
+                    Complete Setup
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let domainCount = 0;
+
+    function addDomainEntry(data = {}) {
+        domainCount++;
+        const container = document.getElementById('domain-entries');
+        const entry = document.createElement('div');
+        entry.className = 'domain-entry';
+        entry.id = `domain-entry-${domainCount}`;
+        const num = domainCount;
+
+        entry.innerHTML = `
+            <div class="domain-entry-header">
+                <span class="domain-entry-title">Domain ${num}</span>
+                ${num > 1 ? `<button type="button" class="remove-domain-btn" onclick="removeDomainEntry(${num})" title="Remove">${icon('x')}</button>` : ''}
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="domain-name-${num}">Domain Name</label>
+                <input class="form-input" type="text" id="domain-name-${num}" 
+                       placeholder="example.com" value="${data.domain_name || ''}" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="public-ip-${num}">Public IP Address</label>
+                <input class="form-input" type="text" id="public-ip-${num}" 
+                       placeholder="203.0.113.1" value="${data.public_ip || ''}" required>
+                <span class="form-hint">Your static public IP. Can be shared across domains.</span>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label" for="cf-token-${num}">Cloudflare API Token</label>
+                    <input class="form-input" type="password" id="cf-token-${num}" 
+                           placeholder="Token" value="${data.cloudflare_api_token || ''}" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="cf-zone-${num}">Cloudflare Zone ID</label>
+                    <input class="form-input" type="text" id="cf-zone-${num}" 
+                           placeholder="Zone ID" value="${data.cloudflare_zone_id || ''}" required>
+                </div>
+            </div>
+        `;
+
+        container.appendChild(entry);
+    }
+
+    function removeDomainEntry(num) {
+        const entry = document.getElementById(`domain-entry-${num}`);
+        if (entry) entry.remove();
+    }
+
+    async function submitSetup() {
+        const entries = document.querySelectorAll('.domain-entry');
+        const domains = [];
+
+        for (const entry of entries) {
+            const inputs = entry.querySelectorAll('input');
+            const domainName = inputs[0].value.trim();
+            const publicIp = inputs[1].value.trim();
+            const cfToken = inputs[2].value.trim();
+            const cfZone = inputs[3].value.trim();
+
+            if (!domainName || !publicIp || !cfToken || !cfZone) {
+                showToast('Please fill in all fields for each domain.', 'error');
+                return;
+            }
+
+            domains.push({
+                domain_name: domainName,
+                public_ip: publicIp,
+                cloudflare_api_token: cfToken,
+                cloudflare_zone_id: cfZone,
+            });
+        }
+
+        const btn = document.getElementById('setup-submit-btn');
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner"></span> Setting up...`;
+
+        try {
+            const resp = await fetch('/api/setup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ domains }),
+            });
+
+            const result = await resp.json();
+
+            if (result.success) {
+                showToast(`Setup complete! ${result.created.length} domain(s) added.`, 'success');
+                setTimeout(() => { window.location.href = '/domains'; }, 800);
+            } else {
+                const msg = result.errors?.join(', ') || result.message || 'Setup failed';
+                showToast(msg, 'error');
+                btn.disabled = false;
+                btn.innerHTML = `${icon('check')} Complete Setup`;
+            }
+        } catch (e) {
+            showToast('Network error. Please try again.', 'error');
+            btn.disabled = false;
+            btn.innerHTML = `${icon('check')} Complete Setup`;
+        }
+    }
+
+    // Initialize with one entry
+    document.addEventListener('DOMContentLoaded', () => {
+        addDomainEntry();
+        document.getElementById('icon-plus-add').innerHTML = icon('plus');
+        document.getElementById('icon-check-setup').innerHTML = icon('check');
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Nginx Proxy Manager{% endblock %}</title>
+    <meta name="description" content="Manage nginx reverse proxy services with Cloudflare DNS integration">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    {% block navbar %}{% endblock %}
+
+    {% block content %}{% endblock %}
+
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="{{ url_for('static', filename='icons/icons.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

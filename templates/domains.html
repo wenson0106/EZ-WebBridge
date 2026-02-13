@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}Domains — Nginx Proxy Manager{% endblock %}
+
+{% block navbar %}
+<nav class="navbar">
+    <div class="navbar-inner">
+        <a href="/domains" class="navbar-brand">
+            <span id="nav-icon"></span>
+            Proxy Manager
+        </a>
+        <div id="nginx-status-container" style="margin-left: auto;"></div>
+    </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+    <div class="page-header">
+        <div class="page-header-row">
+            <div>
+                <h1 class="page-title">Domains</h1>
+                <p class="page-subtitle">Select a domain to manage its proxy services.</p>
+            </div>
+            <button class="btn btn-primary" onclick="openAddDomainModal()">
+                <span class="btn-icon-wrap" data-icon="plus"></span>
+                Add Domain
+            </button>
+        </div>
+    </div>
+
+    <div id="domains-container" class="domains-grid">
+        <!-- Loaded by JS -->
+    </div>
+</div>
+
+<!-- Add Domain Modal -->
+<div class="modal-overlay" id="add-domain-modal">
+    <div class="modal">
+        <div class="modal-header">
+            <h2 class="modal-title">Add Domain</h2>
+            <button class="btn btn-ghost btn-icon" onclick="closeModal('add-domain-modal')">
+                <span data-icon="x"></span>
+            </button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label" for="new-domain-name">Domain Name</label>
+                <input class="form-input" type="text" id="new-domain-name" placeholder="example.com">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="new-public-ip">Public IP Address</label>
+                <input class="form-input" type="text" id="new-public-ip" placeholder="203.0.113.1">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label" for="new-cf-token">Cloudflare API Token</label>
+                    <input class="form-input" type="password" id="new-cf-token" placeholder="Token">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="new-cf-zone">Zone ID</label>
+                    <input class="form-input" type="text" id="new-cf-zone" placeholder="Zone ID">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('add-domain-modal')">Cancel</button>
+            <button class="btn btn-primary" onclick="submitAddDomain()" id="add-domain-btn">
+                <span data-icon="check"></span>
+                Add
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function loadDomains() {
+        const container = document.getElementById('domains-container');
+        try {
+            const resp = await fetch('/api/domains');
+            const data = await resp.json();
+
+            if (!data.success || data.domains.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1 / -1;">
+                        ${icon('globe')}
+                        <h3 class="empty-state-title">No domains yet</h3>
+                        <p class="empty-state-text">Add your first domain to start managing proxy services.</p>
+                        <button class="btn btn-primary" onclick="openAddDomainModal()">
+                            ${icon('plus')} Add Domain
+                        </button>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = data.domains.map(d => `
+                <div class="card domain-card" onclick="window.location.href='/dashboard/${d.id}'">
+                    <button class="btn btn-ghost btn-icon domain-delete" 
+                            onclick="event.stopPropagation(); deleteDomain(${d.id}, '${d.domain_name}')"
+                            title="Delete domain">
+                        ${icon('trash')}
+                    </button>
+                    <div class="domain-name">${escapeHtml(d.domain_name)}</div>
+                    <div class="domain-meta">
+                        <span class="domain-meta-item">
+                            ${icon('layers')}
+                            ${d.service_count} service${d.service_count !== 1 ? 's' : ''}
+                        </span>
+                        <span class="domain-meta-item">
+                            ${icon('mapPin')}
+                            ${escapeHtml(d.public_ip)}
+                        </span>
+                    </div>
+                </div>
+            `).join('');
+        } catch (e) {
+            container.innerHTML = `<div class="empty-state" style="grid-column: 1 / -1;"><p>Failed to load domains.</p></div>`;
+        }
+    }
+
+    function openAddDomainModal() {
+        document.getElementById('new-domain-name').value = '';
+        document.getElementById('new-public-ip').value = '';
+        document.getElementById('new-cf-token').value = '';
+        document.getElementById('new-cf-zone').value = '';
+        openModal('add-domain-modal');
+    }
+
+    async function submitAddDomain() {
+        const domainName = document.getElementById('new-domain-name').value.trim();
+        const publicIp = document.getElementById('new-public-ip').value.trim();
+        const cfToken = document.getElementById('new-cf-token').value.trim();
+        const cfZone = document.getElementById('new-cf-zone').value.trim();
+
+        if (!domainName || !publicIp || !cfToken || !cfZone) {
+            showToast('Please fill in all fields.', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('add-domain-btn');
+        btn.disabled = true;
+
+        try {
+            const resp = await fetch('/api/domains', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    domain_name: domainName,
+                    public_ip: publicIp,
+                    cloudflare_api_token: cfToken,
+                    cloudflare_zone_id: cfZone,
+                }),
+            });
+            const result = await resp.json();
+
+            if (result.success) {
+                showToast(`Domain ${domainName} added.`, 'success');
+                closeModal('add-domain-modal');
+                loadDomains();
+            } else {
+                showToast(result.message || 'Failed to add domain.', 'error');
+            }
+        } catch (e) {
+            showToast('Network error.', 'error');
+        }
+        btn.disabled = false;
+    }
+
+    async function deleteDomain(id, name) {
+        if (!confirm(`Delete domain "${name}" and all its services?`)) return;
+
+        try {
+            const resp = await fetch(`/api/domains/${id}`, { method: 'DELETE' });
+            const result = await resp.json();
+            if (result.success) {
+                showToast(`Domain ${name} deleted.`, 'success');
+                loadDomains();
+            } else {
+                showToast(result.message || 'Delete failed.', 'error');
+            }
+        } catch (e) {
+            showToast('Network error.', 'error');
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('nav-icon').innerHTML = icon('server');
+        renderIcons();
+        loadDomains();
+    });
+</script>
+{% endblock %}

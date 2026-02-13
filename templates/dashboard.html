@@ -1,0 +1,390 @@
+{% extends "base.html" %}
+{% block title %}{{ domain.domain_name }} — Nginx Proxy Manager{% endblock %}
+
+{% block navbar %}
+<nav class="navbar">
+    <div class="navbar-inner">
+        <a href="/domains" class="navbar-brand">
+            <span id="nav-icon"></span>
+            Proxy Manager
+        </a>
+        <div id="nginx-status-container" style="margin-left: auto;"></div>
+    </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+    <!-- Breadcrumb -->
+    <div class="breadcrumb">
+        <a href="/domains">Domains</a>
+        <span class="breadcrumb-separator" data-icon="chevronRight"></span>
+        <span class="breadcrumb-current">{{ domain.domain_name }}</span>
+    </div>
+
+    <!-- Domain Info Bar -->
+    <div class="dashboard-info">
+        <div class="dashboard-info-item">
+            <span class="dashboard-info-label">Domain</span>
+            <span class="dashboard-info-value">{{ domain.domain_name }}</span>
+        </div>
+        <div class="dashboard-info-divider"></div>
+        <div class="dashboard-info-item">
+            <span class="dashboard-info-label">Public IP</span>
+            <span class="dashboard-info-value">{{ domain.public_ip }}</span>
+        </div>
+        <div class="dashboard-info-divider"></div>
+        <div class="dashboard-info-item">
+            <span class="dashboard-info-label">Services</span>
+            <span class="dashboard-info-value" id="service-count">{{ domain.services | length }}</span>
+        </div>
+        <div class="dashboard-actions">
+            <button class="btn btn-secondary" onclick="openAddServiceModal()">
+                <span data-icon="plus"></span>
+                Add Service
+            </button>
+            <button class="btn btn-primary" onclick="applyConfig()" id="apply-btn">
+                <span data-icon="refresh"></span>
+                Apply Config
+            </button>
+        </div>
+    </div>
+
+    <!-- Services List -->
+    <div id="services-container" class="services-list">
+        <!-- Loaded by JS -->
+    </div>
+</div>
+
+<!-- Add Service Modal -->
+<div class="modal-overlay" id="add-service-modal">
+    <div class="modal">
+        <div class="modal-header">
+            <h2 class="modal-title" id="service-modal-title">Add Service</h2>
+            <button class="btn btn-ghost btn-icon" onclick="closeModal('add-service-modal')">
+                <span data-icon="x"></span>
+            </button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label" for="svc-internal">Internal Service Address</label>
+                <input class="form-input" type="text" id="svc-internal" placeholder="192.168.50.243:5000">
+                <span class="form-hint">The IP and port of the internal service.</span>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="svc-subdomain">Subdomain (optional)</label>
+                <input class="form-input" type="text" id="svc-subdomain" placeholder="api">
+                <span class="form-hint">Leave empty to use the root domain. e.g. "api" for api.{{ domain.domain_name
+                    }}</span>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="svc-path">Path Prefix</label>
+                <input class="form-input" type="text" id="svc-path" placeholder="/app/">
+                <span class="form-hint">e.g. /app/ or /api/v1/ — cannot be "/" alone.</span>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="svc-description">Description (optional)</label>
+                <input class="form-input" type="text" id="svc-description" placeholder="Main web application">
+            </div>
+            <input type="hidden" id="svc-edit-id" value="">
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('add-service-modal')">Cancel</button>
+            <button class="btn btn-primary" onclick="submitService()" id="submit-service-btn">
+                <span data-icon="check"></span>
+                Save
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Apply Results Modal -->
+<div class="modal-overlay" id="apply-results-modal">
+    <div class="modal">
+        <div class="modal-header">
+            <h2 class="modal-title">Apply Results</h2>
+            <button class="btn btn-ghost btn-icon" onclick="closeModal('apply-results-modal')">
+                <span data-icon="x"></span>
+            </button>
+        </div>
+        <div class="modal-body">
+            <div id="apply-results-content" class="apply-results"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary" onclick="closeModal('apply-results-modal')">Close</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const DOMAIN_ID = {{ domain.id }};
+    const DOMAIN_NAME = '{{ domain.domain_name }}';
+
+    async function loadServices() {
+        const container = document.getElementById('services-container');
+        try {
+            const resp = await fetch(`/api/services/${DOMAIN_ID}`);
+            const data = await resp.json();
+
+            if (!data.success || data.services.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        ${icon('network')}
+                        <h3 class="empty-state-title">No services configured</h3>
+                        <p class="empty-state-text">Add a service to start proxying traffic to your internal network.</p>
+                        <button class="btn btn-primary" onclick="openAddServiceModal()">
+                            ${icon('plus')} Add Service
+                        </button>
+                    </div>
+                `;
+                document.getElementById('service-count').textContent = '0';
+                return;
+            }
+
+            document.getElementById('service-count').textContent = data.services.length;
+
+            container.innerHTML = data.services.map(s => `
+                <div class="service-item">
+                    <div class="service-info">
+                        <div class="service-urls">
+                            <div class="service-url-row">
+                                <span class="service-url-label">ext</span>
+                                <span class="service-url-value">${escapeHtml(s.external_url)}</span>
+                            </div>
+                            <div class="service-url-row">
+                                <span class="service-url-label">int</span>
+                                <span class="service-url-value internal">${escapeHtml(s.internal_url)}</span>
+                            </div>
+                        </div>
+                        ${s.description ? `<div class="service-description">${escapeHtml(s.description)}</div>` : ''}
+                    </div>
+                    <div class="service-actions">
+                        <span class="service-status ${s.enabled ? 'active' : 'inactive'}">
+                            <span class="status-dot"></span>
+                            ${s.enabled ? 'Active' : 'Inactive'}
+                        </span>
+                        <button class="btn btn-ghost btn-icon" onclick="toggleService(${s.id}, ${!s.enabled})" title="${s.enabled ? 'Disable' : 'Enable'}">
+                            ${s.enabled ? icon('toggleOn') : icon('toggleOff')}
+                        </button>
+                        <button class="btn btn-ghost btn-icon" onclick="editService(${s.id})" title="Edit">
+                            ${icon('edit')}
+                        </button>
+                        <button class="btn btn-ghost btn-icon" onclick="deleteService(${s.id})" title="Delete">
+                            ${icon('trash')}
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        } catch (e) {
+            container.innerHTML = `<div class="empty-state"><p>Failed to load services.</p></div>`;
+        }
+    }
+
+    function openAddServiceModal() {
+        document.getElementById('service-modal-title').textContent = 'Add Service';
+        document.getElementById('svc-internal').value = '';
+        document.getElementById('svc-subdomain').value = '';
+        document.getElementById('svc-path').value = '';
+        document.getElementById('svc-description').value = '';
+        document.getElementById('svc-edit-id').value = '';
+        openModal('add-service-modal');
+    }
+
+    async function editService(serviceId) {
+        try {
+            const resp = await fetch(`/api/services/${DOMAIN_ID}`);
+            const data = await resp.json();
+            const svc = data.services.find(s => s.id === serviceId);
+            if (!svc) return;
+
+            document.getElementById('service-modal-title').textContent = 'Edit Service';
+            document.getElementById('svc-internal').value = svc.internal_address;
+            document.getElementById('svc-subdomain').value = svc.subdomain || '';
+            document.getElementById('svc-path').value = svc.path_prefix;
+            document.getElementById('svc-description').value = svc.description || '';
+            document.getElementById('svc-edit-id').value = serviceId;
+            openModal('add-service-modal');
+        } catch (e) {
+            showToast('Failed to load service data.', 'error');
+        }
+    }
+
+    async function submitService() {
+        const internal = document.getElementById('svc-internal').value.trim();
+        const subdomain = document.getElementById('svc-subdomain').value.trim();
+        const pathPrefix = document.getElementById('svc-path').value.trim();
+        const description = document.getElementById('svc-description').value.trim();
+        const editId = document.getElementById('svc-edit-id').value;
+
+        if (!internal || !pathPrefix) {
+            showToast('Internal address and path prefix are required.', 'error');
+            return;
+        }
+
+        if (pathPrefix === '/') {
+            showToast('Path prefix cannot be "/" alone. Use a specific path like "/app/".', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('submit-service-btn');
+        btn.disabled = true;
+
+        const payload = {
+            domain_id: DOMAIN_ID,
+            internal_address: internal,
+            subdomain: subdomain,
+            path_prefix: pathPrefix,
+            description: description,
+        };
+
+        try {
+            let resp;
+            if (editId) {
+                resp = await fetch(`/api/services/${editId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+            } else {
+                resp = await fetch('/api/services', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+            }
+
+            const result = await resp.json();
+
+            if (result.success) {
+                showToast(editId ? 'Service updated.' : 'Service added.', 'success');
+                closeModal('add-service-modal');
+                loadServices();
+            } else {
+                showToast(result.message || 'Operation failed.', 'error');
+            }
+        } catch (e) {
+            showToast('Network error.', 'error');
+        }
+        btn.disabled = false;
+    }
+
+    async function toggleService(serviceId, enabled) {
+        try {
+            const resp = await fetch(`/api/services/${serviceId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled }),
+            });
+            const result = await resp.json();
+            if (result.success) {
+                showToast(`Service ${enabled ? 'enabled' : 'disabled'}.`, 'success');
+                loadServices();
+            }
+        } catch (e) {
+            showToast('Network error.', 'error');
+        }
+    }
+
+    async function deleteService(serviceId) {
+        if (!confirm('Delete this service?')) return;
+        try {
+            const resp = await fetch(`/api/services/${serviceId}`, { method: 'DELETE' });
+            const result = await resp.json();
+            if (result.success) {
+                showToast('Service deleted.', 'success');
+                loadServices();
+            }
+        } catch (e) {
+            showToast('Network error.', 'error');
+        }
+    }
+
+    async function applyConfig() {
+        const btn = document.getElementById('apply-btn');
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner"></span> Applying...`;
+
+        try {
+            const resp = await fetch(`/api/apply/${DOMAIN_ID}`, { method: 'POST' });
+            const data = await resp.json();
+
+            showApplyResults(data);
+        } catch (e) {
+            showToast('Failed to apply configuration.', 'error');
+        }
+
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    }
+
+    function showApplyResults(data) {
+        const content = document.getElementById('apply-results-content');
+        let html = '';
+
+        // Nginx results
+        const nginx = data.results?.nginx || {};
+        html += `
+            <div class="apply-section">
+                <div class="apply-section-title">
+                    ${icon('server')} Nginx Configuration
+                </div>
+        `;
+        if (nginx.files?.length) {
+            nginx.files.forEach(f => {
+                const filename = f.split(/[/\\]/).pop();
+                html += `<div class="apply-result-item success">${icon('check')} Generated: ${escapeHtml(filename)}</div>`;
+            });
+        }
+        if (nginx.errors?.length) {
+            nginx.errors.forEach(e => {
+                const cls = e.includes('removed') || e.includes('No enabled') ? 'success' : 'error';
+                html += `<div class="apply-result-item ${cls}">${icon(cls === 'error' ? 'alertCircle' : 'info')} ${escapeHtml(e)}</div>`;
+            });
+        }
+        html += '</div>';
+
+        // Cloudflare results
+        const cf = data.results?.cloudflare || {};
+        html += `
+            <div class="apply-section">
+                <div class="apply-section-title">
+                    ${icon('cloud')} Cloudflare DNS
+                </div>
+        `;
+        if (cf.results?.length) {
+            cf.results.forEach(r => {
+                const cls = r.success ? 'success' : 'error';
+                const icn = r.success ? 'check' : 'alertCircle';
+                html += `<div class="apply-result-item ${cls}">${icon(icn)} ${escapeHtml(r.message || r.dns_name)}</div>`;
+            });
+        }
+        if (cf.errors?.length) {
+            cf.errors.forEach(e => {
+                html += `<div class="apply-result-item error">${icon('alertCircle')} ${escapeHtml(e)}</div>`;
+            });
+        }
+        if (!cf.results?.length && !cf.errors?.length) {
+            html += `<div class="apply-result-item success">${icon('check')} No changes needed</div>`;
+        }
+        html += '</div>';
+
+        content.innerHTML = html;
+        openModal('apply-results-modal');
+
+        if (data.success) {
+            showToast('Configuration applied successfully.', 'success');
+        } else {
+            showToast('Some operations failed. Check the results.', 'error');
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('nav-icon').innerHTML = icon('server');
+        renderIcons();
+        loadServices();
+    });
+</script>
+{% endblock %}

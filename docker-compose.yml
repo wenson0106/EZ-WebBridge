@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  nginx-proxy-manager:
+    build: .
+    image: nginx-proxy-manager:latest
+    container_name: nginx-proxy-manager
+    restart: unless-stopped
+    ports:
+      - "80:80"     # Nginx Proxy
+      - "8181:8181" # Web UI
+    volumes:
+      - ./data:/app/data                # Persist database
+      - ./generated_configs:/app/generated_configs # Persist configs (optional)
+      # - ./logs:/var/log/nginx         # Optional: Persist logs
+    environment:
+      - TZ=Asia/Taipei
+    # network_mode: host # Uncomment if you need to proxy to localhost services on the host machine
