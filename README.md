@@ -19,8 +19,8 @@ A minimalist, high-performance Nginx manager built with Flask and Python, featur
 
 1.  **Clone the repository**:
     ```bash
-    git clone https://github.com/wenson0106/nginx-proxy-manager.git
-    cd nginx-proxy-manager
+    https://github.com/wenson0106/EZ-WebBridge.git
+    cd EZ-WebBridge
     ```
 
 2.  **Start the service**:
