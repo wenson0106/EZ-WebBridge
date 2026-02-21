@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+{% block title %}Caddy 設定 — EZ-WebBridge{% endblock %}
+
+{% block content %}
+<div class="wizard-container">
+    <div class="wizard-card">
+        <!-- Step indicator -->
+        <div class="wizard-steps">
+            <div class="wizard-step active" data-step="1">
+                <div class="wizard-step-dot">1</div>
+                <span>下載 Caddy</span>
+            </div>
+            <div class="wizard-step-line"></div>
+            <div class="wizard-step" data-step="2">
+                <div class="wizard-step-dot">2</div>
+                <span>新增服務</span>
+            </div>
+            <div class="wizard-step-line"></div>
+            <div class="wizard-step" data-step="3">
+                <div class="wizard-step-dot">3</div>
+                <span>啟動完成</span>
+            </div>
+        </div>
+
+        <!-- Step 1: Download Caddy -->
+        <div class="wizard-panel active" id="step-1">
+            <div class="wizard-panel-icon" data-icon="download"></div>
+            <h2 class="wizard-panel-title">下載 Caddy 伺服器</h2>
+
+            <div class="wizard-tutorial" style="background:#f0f9ff; border-color:#bae6fd;">
+                <div class="wizard-tutorial-steps" style="color:#0c4a6e; padding:12px 16px;">
+                    <strong>ℹ️ Caddy 模式說明：</strong>
+                    <ul style="margin:8px 0 0 20px; list-style:disc;">
+                        <li>您需要有<strong>固定 IP</strong> 以及在路由器上開放 Port 80 和 443。</li>
+                        <li>Caddy 會自動向 <strong>Let's Encrypt</strong> 申請免費 SSL 憑證。</li>
+                        <li>您可以直接轉發至區網內的其他設備 (例如 192.168.1.x)。</li>
+                    </ul>
+                </div>
+            </div>
+
+            <p class="wizard-panel-text">
+                Caddy 是一個輕量、高效的網頁伺服器，支援自動 HTTPS。點擊下方按鈕開始下載。
+            </p>
+            <div id="download-status" class="wizard-status">
+                <div class="wizard-status-icon" data-icon="info"></div>
+                <span>點擊下方按鈕開始下載</span>
+            </div>
+            <div class="wizard-progress" id="download-progress" style="display:none;">
+                <div class="wizard-progress-bar" id="download-bar"></div>
+            </div>
+            <div class="wizard-actions">
+                <button class="btn btn-secondary" onclick="window.location.href='/triage'">
+                    <span data-icon="arrowLeft"></span>返回
+                </button>
+                <button class="btn btn-primary" id="download-btn" onclick="downloadCaddy()">
+                    <span data-icon="download"></span>下載 Caddy
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 2: Add services -->
+        <div class="wizard-panel" id="step-2">
+            <div class="wizard-panel-icon" data-icon="server"></div>
+            <h2 class="wizard-panel-title">新增要公開的服務</h2>
+            <p class="wizard-panel-text">
+                填寫要公開的<strong>網域名稱</strong>和<strong>內網目標位址</strong>。可以新增多個服務。
+            </p>
+
+            <div id="services-list" class="services-editor"></div>
+
+            <button class="btn btn-secondary" onclick="addServiceRow()" id="add-service-btn"
+                style="width:100%; margin-bottom:16px;">
+                <span data-icon="plus"></span>新增服務
+            </button>
+
+            <div class="wizard-actions">
+                <button class="btn btn-secondary" onclick="goToStep(1)">
+                    <span data-icon="arrowLeft"></span>上一步
+                </button>
+                <button class="btn btn-primary" id="setup-btn" onclick="submitSetup()">
+                    <span data-icon="zap"></span>啟動 Caddy
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 3: Done -->
+        <div class="wizard-panel" id="step-3">
+            <div class="wizard-panel-icon success" data-icon="check"></div>
+            <h2 class="wizard-panel-title">🎉 啟動成功！</h2>
+            <p class="wizard-panel-text">
+                Caddy 已成功啟動。<br>
+                請確認您的路由器已將 Port 80 和 443 轉發到這台電腦。
+            </p>
+            <div class="wizard-actions" style="justify-content:center;">
+                <button class="btn btn-primary" onclick="window.location.href='/caddy/dashboard'">
+                    <span data-icon="arrowRight"></span>前往儀表板
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let serviceCount = 0;
+
+    function goToStep(step) {
+        document.querySelectorAll('.wizard-panel').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.wizard-step').forEach(s => s.classList.remove('active', 'done'));
+        document.getElementById(`step-${step}`).classList.add('active');
+        for (let i = 1; i <= 3; i++) {
+            const el = document.querySelector(`.wizard-step[data-step="${i}"]`);
+            if (i < step) el.classList.add('done');
+            else if (i === step) el.classList.add('active');
+        }
+    }
+
+    async function downloadCaddy() {
+        const btn = document.getElementById('download-btn');
+        const status = document.getElementById('download-status');
+        const progress = document.getElementById('download-progress');
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner"></span> 下載中…`;
+        status.innerHTML = `<div class="wizard-status-icon">${icon('info')}</div><span>正在下載 Caddy，請稍候…</span>`;
+        status.className = 'wizard-status info';
+        progress.style.display = 'block';
+        try {
+            const resp = await fetch('/api/caddy/install-binary', { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                status.innerHTML = `<div class="wizard-status-icon">${icon('check')}</div><span>下載完成！</span>`;
+                status.className = 'wizard-status success';
+                document.getElementById('download-bar').style.width = '100%';
+                setTimeout(() => { goToStep(2); addServiceRow(); }, 800);
+            } else {
+                status.innerHTML = `<div class="wizard-status-icon">${icon('alertCircle')}</div><span>${escapeHtml(data.message)}</span>`;
+                status.className = 'wizard-status error';
+                btn.disabled = false;
+                btn.innerHTML = `${icon('download')} 重試下載`;
+            }
+        } catch (e) {
+            status.innerHTML = `<div class="wizard-status-icon">${icon('alertCircle')}</div><span>網路錯誤，請重試</span>`;
+            status.className = 'wizard-status error';
+            btn.disabled = false;
+            btn.innerHTML = `${icon('download')} 重試下載`;
+        }
+    }
+
+    function addServiceRow(domain = '', target = '') {
+        const id = ++serviceCount;
+        const list = document.getElementById('services-list');
+        const row = document.createElement('div');
+        row.className = 'service-editor-row';
+        row.id = `svc-row-${id}`;
+        row.innerHTML = `
+            <div class="service-editor-fields">
+                <div class="form-group" style="flex:1;">
+                    <label class="form-label">網域 (Public Domain)</label>
+                    <input class="form-input" type="text" id="svc-domain-${id}" value="${escapeHtml(domain)}"
+                        placeholder="app.example.com">
+                </div>
+                <div class="form-group" style="flex:1;">
+                    <label class="form-label">目標位址 (Target)</label>
+                    <input class="form-input" type="text" id="svc-target-${id}" value="${escapeHtml(target)}"
+                        placeholder="localhost:3000 或 192.168.1.50:8080">
+                </div>
+                <button class="btn btn-danger btn-sm" onclick="document.getElementById('svc-row-${id}').remove()" style="align-self:flex-end;">
+                    ${icon('trash')}
+                </button>
+            </div>
+        `;
+        list.appendChild(row);
+        renderIcons();
+        row.querySelectorAll('[data-icon]').forEach(el => {
+            const name = el.getAttribute('data-icon');
+            if (Icons[name]) el.innerHTML = Icons[name];
+        });
+    }
+
+    function collectServices() {
+        const services = [];
+        const rows = document.querySelectorAll('.service-editor-row');
+        rows.forEach(row => {
+            const id = row.id.replace('svc-row-', '');
+            const domain = document.getElementById(`svc-domain-${id}`)?.value.trim();
+            const target = document.getElementById(`svc-target-${id}`)?.value.trim();
+            if (domain && target) services.push({ domain, target });
+        });
+        return services;
+    }
+
+    async function submitSetup() {
+        const services = collectServices();
+        if (!services.length) { showToast('請至少新增一個服務', 'error'); return; }
+        const btn = document.getElementById('setup-btn');
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner"></span> 啟動中…`;
+        try {
+            const resp = await fetch('/api/caddy/setup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ services }),
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showToast('Caddy 啟動成功！', 'success');
+                goToStep(3);
+            } else {
+                showToast(data.message || '啟動失敗', 'error');
+                btn.disabled = false;
+                btn.innerHTML = `${icon('zap')} 啟動 Caddy`;
+            }
+        } catch (e) {
+            showToast('網路錯誤，請重試', 'error');
+            btn.disabled = false;
+            btn.innerHTML = `${icon('zap')} 啟動 Caddy`;
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        renderIcons();
+        fetch('/api/caddy/status').then(r => r.json()).then(data => {
+            if (data.installed) {
+                const status = document.getElementById('download-status');
+                status.innerHTML = `<div class="wizard-status-icon">${icon('check')}</div><span>Caddy 已安裝</span>`;
+                status.className = 'wizard-status success';
+                const btn = document.getElementById('download-btn');
+                btn.textContent = '已安裝 — 下一步';
+                btn.onclick = () => { goToStep(2); addServiceRow(); };
+                if (data.config?.services?.length) {
+                    // Pre-populate existing services on revisit
+                    goToStep(2);
+                    data.config.services.forEach(s => addServiceRow(s.domain, s.target));
+                }
+            }
+        });
+    });
+</script>
+
+<style>
+    .services-editor {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+
+    .service-editor-row {
+        background: var(--color-surface-alt);
+        border: 1px solid var(--color-border);
+        border-radius: 10px;
+        padding: 14px;
+    }
+
+    .service-editor-fields {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .btn-danger {
+        background: #fee2e2;
+        color: #dc2626;
+        border: none;
+    }
+
+    .btn-danger:hover {
+        background: #fca5a5;
+    }
+
+    .btn-sm {
+        padding: 6px 10px;
+        font-size: 13px;
+    }
+</style>
+{% endblock %}

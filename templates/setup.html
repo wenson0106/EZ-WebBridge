@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Initial Setup — Nginx Proxy Manager{% endblock %}
+{% block title %}Nginx 模式設定 — EZ-WebBridge{% endblock %}
 
 {% block content %}
 <div class="setup-container">
     <div class="card-static setup-card">
-        <h1 class="setup-title">Welcome</h1>
-        <p class="setup-subtitle">Set up your first domain to get started with proxy management.</p>
+        <h1 class="setup-title">Nginx 直連模式</h1>
+        <p class="setup-subtitle">設定您的網域與 Cloudflare DNS 來開始代理管理。</p>
 
         <form id="setup-form" onsubmit="return false;">
             <div id="domain-entries">
@@ -14,13 +14,18 @@
 
             <button type="button" class="add-domain-link" onclick="addDomainEntry()">
                 <span id="icon-plus-add"></span>
-                Add another domain
+                新增另一個網域
             </button>
 
             <div class="setup-actions">
+                <button type="button" class="btn btn-secondary" onclick="window.location.href='/triage'"
+                    style="margin-right: var(--space-sm);">
+                    <span data-icon="arrowLeft"></span>
+                    返回選擇
+                </button>
                 <button type="button" class="btn btn-primary" onclick="submitSetup()" id="setup-submit-btn">
                     <span id="icon-check-setup"></span>
-                    Complete Setup
+                    完成設定
                 </button>
             </div>
         </form>
@@ -42,19 +47,19 @@
 
         entry.innerHTML = `
             <div class="domain-entry-header">
-                <span class="domain-entry-title">Domain ${num}</span>
-                ${num > 1 ? `<button type="button" class="remove-domain-btn" onclick="removeDomainEntry(${num})" title="Remove">${icon('x')}</button>` : ''}
+                <span class="domain-entry-title">網域 ${num}</span>
+                ${num > 1 ? `<button type="button" class="remove-domain-btn" onclick="removeDomainEntry(${num})" title="移除">${icon('x')}</button>` : ''}
             </div>
             <div class="form-group">
-                <label class="form-label" for="domain-name-${num}">Domain Name</label>
+                <label class="form-label" for="domain-name-${num}">網域名稱</label>
                 <input class="form-input" type="text" id="domain-name-${num}" 
                        placeholder="example.com" value="${data.domain_name || ''}" required>
             </div>
             <div class="form-group">
-                <label class="form-label" for="public-ip-${num}">Public IP Address</label>
+                <label class="form-label" for="public-ip-${num}">固定 IP 位址</label>
                 <input class="form-input" type="text" id="public-ip-${num}" 
                        placeholder="203.0.113.1" value="${data.public_ip || ''}" required>
-                <span class="form-hint">Your static public IP. Can be shared across domains.</span>
+                <span class="form-hint">您的固定公共 IP，可跨多個網域共用。</span>
             </div>
             <div class="form-row">
                 <div class="form-group">
@@ -90,7 +95,7 @@
             const cfZone = inputs[3].value.trim();
 
             if (!domainName || !publicIp || !cfToken || !cfZone) {
-                showToast('Please fill in all fields for each domain.', 'error');
+                showToast('請填寫所有欄位。', 'error');
                 return;
             }
 
@@ -104,7 +109,7 @@
 
         const btn = document.getElementById('setup-submit-btn');
         btn.disabled = true;
-        btn.innerHTML = `<span class="spinner"></span> Setting up...`;
+        btn.innerHTML = `<span class="spinner"></span> 設定中...`;
 
         try {
             const resp = await fetch('/api/setup', {
@@ -116,18 +121,18 @@
             const result = await resp.json();
 
             if (result.success) {
-                showToast(`Setup complete! ${result.created.length} domain(s) added.`, 'success');
+                showToast(`設定完成！已新增 ${result.created.length} 個網域。`, 'success');
                 setTimeout(() => { window.location.href = '/domains'; }, 800);
             } else {
-                const msg = result.errors?.join(', ') || result.message || 'Setup failed';
+                const msg = result.errors?.join(', ') || result.message || '設定失敗';
                 showToast(msg, 'error');
                 btn.disabled = false;
-                btn.innerHTML = `${icon('check')} Complete Setup`;
+                btn.innerHTML = `${icon('check')} 完成設定`;
             }
         } catch (e) {
-            showToast('Network error. Please try again.', 'error');
+            showToast('網路錯誤，請重試。', 'error');
             btn.disabled = false;
-            btn.innerHTML = `${icon('check')} Complete Setup`;
+            btn.innerHTML = `${icon('check')} 完成設定`;
         }
     }
 
@@ -136,6 +141,7 @@
         addDomainEntry();
         document.getElementById('icon-plus-add').innerHTML = icon('plus');
         document.getElementById('icon-check-setup').innerHTML = icon('check');
+        renderIcons();
     });
 </script>
 {% endblock %}

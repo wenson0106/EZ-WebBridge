@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+{% block title %}Tunnel 儀表板 — EZ-WebBridge{% endblock %}
+
+{% block navbar %}
+<nav class="navbar">
+    <div class="navbar-inner">
+        <a href="/tunnel/dashboard" class="navbar-brand">
+            <span id="nav-icon"></span>
+            EZ-WebBridge
+        </a>
+        <div class="navbar-mode-badge tunnel">Tunnel 模式</div>
+        <div id="tunnel-status-widget" style="margin-left: auto;"></div>
+    </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+    <!-- Status Hero -->
+    <div class="tunnel-hero" id="tunnel-hero">
+        <div class="tunnel-hero-status" id="hero-status">
+            <div class="tunnel-status-dot" id="status-dot"></div>
+            <span class="tunnel-status-label" id="status-label">檢查中...</span>
+        </div>
+        <h1 class="tunnel-hero-title" id="hero-title">Cloudflare Tunnel</h1>
+        <p class="tunnel-hero-url" id="hero-url">—</p>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="tunnel-actions">
+        <button class="btn btn-primary" id="start-btn" onclick="startTunnel()" style="display:none;">
+            <span data-icon="play"></span>
+            啟動 Tunnel
+        </button>
+        <button class="btn btn-danger" id="stop-btn" onclick="stopTunnel()" style="display:none;">
+            <span data-icon="square"></span>
+            停止 Tunnel
+        </button>
+        <button class="btn btn-secondary" onclick="refreshStatus()">
+            <span data-icon="refresh"></span>
+            重新整理
+        </button>
+    </div>
+
+    <!-- Dashboard Grid -->
+    <div class="tunnel-grid">
+        <!-- QR Code Card -->
+        <div class="card-static tunnel-qr-card">
+            <h3 class="card-title">
+                <span data-icon="qrCode"></span>
+                QR Code
+            </h3>
+            <div class="qr-container" id="qr-container">
+                <p class="qr-placeholder">設定公開網址以產生 QR Code</p>
+            </div>
+            <div class="form-group" style="margin-top: var(--space-md); margin-bottom: 0;">
+                <input class="form-input" type="text" id="qr-url-input" placeholder="https://your-domain.com"
+                    value="{{ tunnel.public_url if tunnel else '' }}" onchange="updateQR()">
+            </div>
+        </div>
+
+        <!-- Info Card -->
+        <div class="card-static tunnel-info-card">
+            <h3 class="card-title">
+                <span data-icon="info"></span>
+                連線資訊
+            </h3>
+            <div class="tunnel-info-rows">
+                <div class="tunnel-info-row">
+                    <span class="tunnel-info-label">模式</span>
+                    <span class="tunnel-info-value" id="info-mode">—</span>
+                </div>
+                <div class="tunnel-info-row">
+                    <span class="tunnel-info-label">本地 Port</span>
+                    <span class="tunnel-info-value" id="info-port">—</span>
+                </div>
+                <div class="tunnel-info-row">
+                    <span class="tunnel-info-label">Binary</span>
+                    <span class="tunnel-info-value" id="info-binary">—</span>
+                </div>
+                <div class="tunnel-info-row">
+                    <span class="tunnel-info-label">狀態</span>
+                    <span class="tunnel-info-value" id="info-status">—</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Log Viewer -->
+        <div class="card-static tunnel-log-card">
+            <div class="card-header">
+                <h3 class="card-title">
+                    <span data-icon="terminal"></span>
+                    簡化日誌
+                </h3>
+                <button class="btn btn-ghost btn-sm" onclick="fetchLogs()">
+                    <span data-icon="refresh"></span>
+                    更新
+                </button>
+            </div>
+            <div class="log-viewer" id="log-viewer">
+                <div class="log-empty">尚無日誌記錄</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom actions -->
+    <div class="tunnel-bottom-actions">
+        <button class="btn btn-ghost" onclick="resetMode()">
+            <span data-icon="arrowLeft"></span>
+            切換模式 / 重新設定
+        </button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script>
+    let qrInstance = null;
+
+    async function refreshStatus() {
+        try {
+            const resp = await fetch('/api/tunnel/status');
+            const data = await resp.json();
+
+            const dot = document.getElementById('status-dot');
+            const label = document.getElementById('status-label');
+            const hero = document.getElementById('tunnel-hero');
+            const startBtn = document.getElementById('start-btn');
+            const stopBtn = document.getElementById('stop-btn');
+
+            if (data.running) {
+                dot.className = 'tunnel-status-dot online';
+                label.textContent = '運行中 Online';
+                hero.className = 'tunnel-hero online';
+                startBtn.style.display = 'none';
+                stopBtn.style.display = '';
+            } else {
+                dot.className = 'tunnel-status-dot offline';
+                label.textContent = '已停止 Offline';
+                hero.className = 'tunnel-hero offline';
+                startBtn.style.display = '';
+                stopBtn.style.display = 'none';
+            }
+
+            // Info panel
+            if (data.config) {
+                document.getElementById('info-port').textContent = data.config.local_port;
+                document.getElementById('info-mode').textContent = data.config.install_as_service ? '系統服務' : '臨時執行';
+                if (data.config.public_url) {
+                    document.getElementById('hero-url').textContent = data.config.public_url;
+                    document.getElementById('hero-url').onclick = () => window.open(data.config.public_url, '_blank');
+                    document.getElementById('hero-url').style.cursor = 'pointer';
+                }
+            }
+            document.getElementById('info-binary').textContent = data.installed ? '已安裝' : '未安裝';
+            document.getElementById('info-status').textContent = data.running ? '運行中' : '已停止';
+
+        } catch (e) {
+            console.error('Status check failed', e);
+        }
+    }
+
+    async function startTunnel() {
+        const btn = document.getElementById('start-btn');
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner"></span> 啟動中...`;
+
+        try {
+            const resp = await fetch('/api/tunnel/start', { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                showToast('Tunnel 已啟動', 'success');
+            } else {
+                showToast(data.message || '啟動失敗', 'error');
+            }
+        } catch (e) {
+            showToast('網路錯誤', 'error');
+        }
+        btn.disabled = false;
+        btn.innerHTML = `${icon('play')} 啟動 Tunnel`;
+        refreshStatus();
+        setTimeout(fetchLogs, 1000);
+    }
+
+    async function stopTunnel() {
+        const btn = document.getElementById('stop-btn');
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner"></span> 停止中...`;
+
+        try {
+            const resp = await fetch('/api/tunnel/stop', { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                showToast('Tunnel 已停止', 'success');
+            } else {
+                showToast(data.message || '停止失敗', 'error');
+            }
+        } catch (e) {
+            showToast('網路錯誤', 'error');
+        }
+        btn.disabled = false;
+        btn.innerHTML = `${icon('square')} 停止 Tunnel`;
+        refreshStatus();
+        setTimeout(fetchLogs, 1000);
+    }
+
+    async function fetchLogs() {
+        try {
+            const resp = await fetch('/api/tunnel/logs?n=30');
+            const data = await resp.json();
+            const viewer = document.getElementById('log-viewer');
+
+            if (data.logs && data.logs.length > 0) {
+                viewer.innerHTML = data.logs.map(line => {
+                    // Simplify for non-technical users
+                    let cls = 'log-line';
+                    if (line.includes('ERR') || line.includes('error')) cls += ' error';
+                    else if (line.includes('EZ-WebBridge')) cls += ' highlight';
+                    else if (line.includes('connection') || line.includes('registered')) cls += ' success';
+                    return `<div class="${cls}">${escapeHtml(line)}</div>`;
+                }).join('');
+                viewer.scrollTop = viewer.scrollHeight;
+            } else {
+                viewer.innerHTML = '<div class="log-empty">尚無日誌記錄</div>';
+            }
+        } catch (e) {
+            console.error('Failed to fetch logs', e);
+        }
+    }
+
+    function updateQR() {
+        const urlInput = document.getElementById('qr-url-input');
+        const url = urlInput.value.trim();
+        const container = document.getElementById('qr-container');
+
+        if (!url) {
+            container.innerHTML = '<p class="qr-placeholder">設定公開網址以產生 QR Code</p>';
+            qrInstance = null;
+            return;
+        }
+
+        container.innerHTML = '';
+        try {
+            qrInstance = new QRCode(container, {
+                text: url,
+                width: 180,
+                height: 180,
+                colorDark: '#2C2C2C',
+                colorLight: '#FAFAF7',
+                correctLevel: QRCode.CorrectLevel.M,
+            });
+        } catch (e) {
+            container.innerHTML = '<p class="qr-placeholder">QR Code 產生失敗</p>';
+        }
+
+        // Also save url
+        fetch('/api/tunnel/setup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ public_url: url, token: '_keep_', local_port: 80 }),
+        }).catch(() => { });
+    }
+
+    async function resetMode() {
+        if (!confirm('確定要重新設定嗎？這將停止目前的 Tunnel。')) return;
+        try {
+            await fetch('/api/reset', { method: 'POST' });
+            window.location.href = '/triage';
+        } catch (e) {
+            showToast('重置失敗', 'error');
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('nav-icon').innerHTML = icon('globe');
+        renderIcons();
+        refreshStatus();
+        fetchLogs();
+        updateQR();
+
+        // Poll status every 5 seconds
+        setInterval(refreshStatus, 5000);
+        setInterval(fetchLogs, 10000);
+    });
+</script>
+{% endblock %}

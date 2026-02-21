@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+{% block title %}Tunnel 設定 — EZ-WebBridge{% endblock %}
+
+{% block content %}
+<div class="wizard-container">
+    <div class="wizard-card">
+        <!-- Step indicator -->
+        <div class="wizard-steps">
+            <div class="wizard-step active" data-step="1">
+                <div class="wizard-step-dot">1</div>
+                <span>安裝工具</span>
+            </div>
+            <div class="wizard-step-line"></div>
+            <div class="wizard-step" data-step="2">
+                <div class="wizard-step-dot">2</div>
+                <span>輸入 Token</span>
+            </div>
+            <div class="wizard-step-line"></div>
+            <div class="wizard-step" data-step="3">
+                <div class="wizard-step-dot">3</div>
+                <span>設定完成</span>
+            </div>
+        </div>
+
+        <!-- Step 1: Download cloudflared -->
+        <div class="wizard-panel active" id="step-1">
+            <div class="wizard-panel-icon" data-icon="download"></div>
+            <h2 class="wizard-panel-title">安裝 Cloudflare Tunnel 工具</h2>
+
+            <div class="wizard-tutorial" style="background:#fff8e6; border-color:#ffeeba;">
+                <div class="wizard-tutorial-steps" style="color:#856404; padding: 12px 16px;">
+                    <strong>⚠️事前準備：</strong> 本功能需要您擁有一個網域（Domain），且 DNS 需託管在 Cloudflare 上。
+                    <ul style="margin: 8px 0 0 20px; list-style: disc;">
+                        <li>沒有網域？推薦至 <a href="https://www.namecheap.com/" target="_blank">Namecheap</a> 或 <a
+                                href="https://tw.godaddy.com/" target="_blank">GoDaddy</a> 購買。</li>
+                        <li>有網域但未連結 Cloudflare？請參考 <a
+                                href="https://developers.cloudflare.com/dns/zone-setups/full-setup/setup/"
+                                target="_blank">官方教學</a>。</li>
+                    </ul>
+                </div>
+            </div>
+
+            <p class="wizard-panel-text">
+                我們需要先下載 <code>cloudflared</code> 工具。這是 Cloudflare 官方提供的免費程式，負責建立安全連線。
+            </p>
+            <div id="download-status" class="wizard-status">
+                <div class="wizard-status-icon" data-icon="info"></div>
+                <span>點擊下方按鈕開始下載</span>
+            </div>
+            <div class="wizard-progress" id="download-progress" style="display:none;">
+                <div class="wizard-progress-bar" id="download-bar"></div>
+            </div>
+            <div class="wizard-actions">
+                <button class="btn btn-secondary" onclick="window.location.href='/triage'">
+                    <span data-icon="arrowLeft"></span>
+                    返回
+                </button>
+                <button class="btn btn-primary" id="download-btn" onclick="downloadCloudflared()">
+                    <span data-icon="download"></span>
+                    下載 cloudflared
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 2: Token input -->
+        <div class="wizard-panel" id="step-2">
+            <div class="wizard-panel-icon" data-icon="key"></div>
+            <h2 class="wizard-panel-title">輸入 Cloudflare Tunnel Token</h2>
+            <p class="wizard-panel-text">
+                您需要從 Cloudflare 取得一組 Tunnel Token。這是一段以 <code>eyJ</code> 開頭的長字串。
+            </p>
+
+            <div class="wizard-tutorial">
+                <div class="wizard-tutorial-header" onclick="toggleTutorial()">
+                    <span data-icon="helpCircle"></span>
+                    <span>如何取得 Token？（點擊展開教學）</span>
+                    <span data-icon="chevronRight" class="tutorial-chevron"></span>
+                </div>
+                <div class="wizard-tutorial-body" id="tutorial-body">
+                    <ol class="wizard-tutorial-steps">
+                        <li>前往 <a href="https://one.dash.cloudflare.com/" target="_blank">Cloudflare Zero Trust
+                                Dashboard</a></li>
+                        <li>登入您的 Cloudflare 帳號</li>
+                        <li>在左側選單找到 <strong>Networks → Connectors</strong> (或 Tunnels)</li>
+                        <li>點擊 <strong>Create a tunnel</strong></li>
+                        <li>選擇 <strong>Cloudflared</strong> 類型，為 Tunnel 取個名字</li>
+                        <li>在「Install and run a connector」步驟中，複製那段 <code>eyJ...</code> Token</li>
+                        <li>在「Route tunnel」步驟中，設定您的網域指向 <code>http://localhost:您的Port</code></li>
+                        <li>⚠️ <strong>Path (路徑) 請留空</strong>，除非您知道用途，否則會導致 404 錯誤</li>
+                    </ol>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="tunnel-token">Tunnel Token</label>
+                <input class="form-input" type="password" id="tunnel-token" placeholder="eyJhIjoixxxxxxxxxxxxxxx..."
+                    autocomplete="off">
+                <span class="form-hint">從 Cloudflare Dashboard 複製的 Token</span>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="tunnel-port">本地服務埠號 (Port)</label>
+                <input class="form-input" type="number" id="tunnel-port" value="80" min="1" max="65535">
+                <span class="form-hint">您的網頁服務在本機使用的 Port（常見：80、3000、8080）</span>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="tunnel-url">公開網址（選填）</label>
+                <input class="form-input" type="text" id="tunnel-url" placeholder="https://your-domain.com">
+                <span class="form-hint">設定在 Cloudflare 的公開網址，方便儀表板顯示</span>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="tunnel-service-mode">執行模式</label>
+                <div class="mode-toggle">
+                    <button class="mode-toggle-btn active" id="mode-temp" onclick="setRunMode(false)">
+                        <span data-icon="zap"></span>
+                        臨時執行
+                    </button>
+                    <button class="mode-toggle-btn" id="mode-service" onclick="setRunMode(true)">
+                        <span data-icon="shield"></span>
+                        安裝為系統服務
+                    </button>
+                </div>
+                <span class="form-hint" id="mode-hint">程式關閉時 Tunnel 也會停止。適合測試使用。</span>
+            </div>
+
+            <div class="wizard-actions">
+                <button class="btn btn-secondary" onclick="goToStep(1)">
+                    <span data-icon="arrowLeft"></span>
+                    上一步
+                </button>
+                <button class="btn btn-primary" id="setup-btn" onclick="submitSetup()">
+                    <span data-icon="zap"></span>
+                    啟動 Tunnel
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 3: Complete -->
+        <div class="wizard-panel" id="step-3">
+            <div class="wizard-panel-icon success" data-icon="check"></div>
+            <h2 class="wizard-panel-title">設定完成！🎉</h2>
+            <p class="wizard-panel-text">
+                您的 Cloudflare Tunnel 已成功啟動。<br>
+                網站現在可以透過您在 Cloudflare 設定的網域訪問了。
+            </p>
+            <div class="wizard-actions" style="justify-content: center;">
+                <button class="btn btn-primary" onclick="window.location.href='/tunnel/dashboard'">
+                    <span data-icon="arrowRight"></span>
+                    前往儀表板
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let installAsService = false;
+
+    function goToStep(step) {
+        document.querySelectorAll('.wizard-panel').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.wizard-step').forEach(s => s.classList.remove('active', 'done'));
+
+        document.getElementById(`step-${step}`).classList.add('active');
+
+        for (let i = 1; i <= 3; i++) {
+            const stepEl = document.querySelector(`.wizard-step[data-step="${i}"]`);
+            if (i < step) stepEl.classList.add('done');
+            else if (i === step) stepEl.classList.add('active');
+        }
+    }
+
+    async function downloadCloudflared() {
+        const btn = document.getElementById('download-btn');
+        const status = document.getElementById('download-status');
+        const progress = document.getElementById('download-progress');
+
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner"></span> 下載中...`;
+        status.innerHTML = `<div class="wizard-status-icon">${icon('info')}</div><span>正在下載 cloudflared，請稍候...</span>`;
+        status.className = 'wizard-status info';
+        progress.style.display = 'block';
+
+        try {
+            const resp = await fetch('/api/tunnel/install-binary', { method: 'POST' });
+            const data = await resp.json();
+
+            if (data.success) {
+                status.innerHTML = `<div class="wizard-status-icon">${icon('check')}</div><span>下載完成！</span>`;
+                status.className = 'wizard-status success';
+                document.getElementById('download-bar').style.width = '100%';
+
+                setTimeout(() => goToStep(2), 800);
+            } else {
+                status.innerHTML = `<div class="wizard-status-icon">${icon('alertCircle')}</div><span>${escapeHtml(data.message)}</span>`;
+                status.className = 'wizard-status error';
+                btn.disabled = false;
+                btn.innerHTML = `${icon('download')} 重試下載`;
+            }
+        } catch (e) {
+            status.innerHTML = `<div class="wizard-status-icon">${icon('alertCircle')}</div><span>網路錯誤，請重試</span>`;
+            status.className = 'wizard-status error';
+            btn.disabled = false;
+            btn.innerHTML = `${icon('download')} 重試下載`;
+        }
+    }
+
+    function setRunMode(isService) {
+        installAsService = isService;
+        document.getElementById('mode-temp').classList.toggle('active', !isService);
+        document.getElementById('mode-service').classList.toggle('active', isService);
+        document.getElementById('mode-hint').textContent = isService
+            ? '安裝為系統服務，重開機後自動執行。'
+            : '程式關閉時 Tunnel 也會停止。適合測試使用。';
+    }
+
+    function toggleTutorial() {
+        const body = document.getElementById('tutorial-body');
+        const chevron = document.querySelector('.tutorial-chevron');
+        body.classList.toggle('open');
+        chevron.classList.toggle('open');
+    }
+
+    async function submitSetup() {
+        const token = document.getElementById('tunnel-token').value.trim();
+        const port = document.getElementById('tunnel-port').value;
+        const url = document.getElementById('tunnel-url').value.trim();
+
+        if (!token) {
+            showToast('請輸入 Tunnel Token', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('setup-btn');
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner"></span> 啟動中...`;
+
+        try {
+            const resp = await fetch('/api/tunnel/setup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    token: token,
+                    local_port: parseInt(port) || 80,
+                    install_as_service: installAsService,
+                    public_url: url,
+                }),
+            });
+            const data = await resp.json();
+
+            if (data.success) {
+                showToast('Tunnel 啟動成功！', 'success');
+                goToStep(3);
+            } else {
+                showToast(data.message || 'Token 看起來有誤，請重新檢查複製', 'error');
+                btn.disabled = false;
+                btn.innerHTML = `${icon('zap')} 啟動 Tunnel`;
+            }
+        } catch (e) {
+            showToast('網路錯誤，請重試', 'error');
+            btn.disabled = false;
+            btn.innerHTML = `${icon('zap')} 啟動 Tunnel`;
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        renderIcons();
+
+        // Check if binary already downloaded
+        fetch('/api/tunnel/status').then(r => r.json()).then(data => {
+            if (data.installed) {
+                // Skip download step
+                const status = document.getElementById('download-status');
+                status.innerHTML = `<div class="wizard-status-icon">${icon('check')}</div><span>cloudflared 已安裝</span>`;
+                status.className = 'wizard-status success';
+                document.getElementById('download-btn').textContent = '已安裝 — 下一步';
+                document.getElementById('download-btn').onclick = () => goToStep(2);
+            }
+        });
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}Caddy 儀表板 — EZ-WebBridge{% endblock %}
+
+{% block content %}
+<div class="tunnel-dashboard">
+
+    <!-- Status Hero -->
+    <div class="tunnel-status-hero" id="status-hero">
+        <div class="tunnel-status-icon" id="status-icon" data-icon="zap"></div>
+        <div class="tunnel-status-body">
+            <h1 class="tunnel-status-title" id="status-title">Caddy 狀態</h1>
+            <p class="tunnel-status-sub" id="status-subtitle">載入中…</p>
+        </div>
+        <div class="tunnel-status-actions">
+            <button class="btn btn-primary" id="start-btn" onclick="startCaddy()" style="display:none;">
+                <span data-icon="play"></span>啟動
+            </button>
+            <button class="btn btn-secondary" id="stop-btn" onclick="stopCaddy()" style="display:none;">
+                <span data-icon="stop"></span>停止
+            </button>
+            <button class="btn btn-secondary" onclick="window.location.href='/caddy/setup'">
+                <span data-icon="settings"></span>重新設定
+            </button>
+        </div>
+    </div>
+
+    <!-- Services List -->
+    <section class="tunnel-section">
+        <h2 class="tunnel-section-title">服務列表</h2>
+        <div id="services-container">
+            {% if caddy_cfg %}
+            {% set services = caddy_cfg.to_dict().services %}
+            {% if services %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>公開網域</th>
+                        <th>內網目標</th>
+                        <th>狀態</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for svc in services %}
+                    <tr>
+                        <td><a href="https://{{ svc.domain }}" target="_blank">{{ svc.domain }}</a></td>
+                        <td><code>{{ svc.target }}</code></td>
+                        <td><span class="mode-badge mode-badge-tunnel">啟用中</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="tunnel-empty">尚未設定任何服務。<a href="/caddy/setup">點此設定</a></p>
+            {% endif %}
+            {% else %}
+            <p class="tunnel-empty">尚未完成設定。<a href="/caddy/setup">點此開始</a></p>
+            {% endif %}
+        </div>
+    </section>
+
+    <!-- Log Viewer -->
+    <section class="tunnel-section">
+        <div class="tunnel-log-header">
+            <h2 class="tunnel-section-title">即時 Log</h2>
+            <button class="tunnel-log-refresh" onclick="loadLogs()" title="重新整理">
+                <span data-icon="refresh"></span>
+            </button>
+        </div>
+        <div class="tunnel-log-viewer" id="log-viewer">
+            <span class="tunnel-log-placeholder">點擊重新整理以載入 Log</span>
+        </div>
+    </section>
+
+    <!-- Footer Actions -->
+    <div class="tunnel-footer-actions">
+        <button class="btn btn-danger-soft" onclick="resetMode()">
+            <span data-icon="arrowLeft"></span>切換模式 / 重新設定
+        </button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function renderStatus(data) {
+        const hero = document.getElementById('status-hero');
+        const icon = document.getElementById('status-icon');
+        const title = document.getElementById('status-title');
+        const sub = document.getElementById('status-subtitle');
+        const startBtn = document.getElementById('start-btn');
+        const stopBtn = document.getElementById('stop-btn');
+
+        if (data.running) {
+            hero.className = 'tunnel-status-hero running';
+            icon.setAttribute('data-icon', 'zap');
+            icon.innerHTML = Icons.zap || '';
+            title.textContent = 'Caddy 運行中';
+            sub.textContent = (data.config?.services?.length || 0) + ' 個服務正在轉發';
+            startBtn.style.display = 'none';
+            stopBtn.style.display = '';
+        } else {
+            hero.className = 'tunnel-status-hero stopped';
+            icon.setAttribute('data-icon', 'alertCircle');
+            icon.innerHTML = Icons.alertCircle || '';
+            title.textContent = 'Caddy 已停止';
+            sub.textContent = '點擊「啟動」按鈕重新啟動';
+            startBtn.style.display = '';
+            stopBtn.style.display = 'none';
+        }
+        renderIcons();
+    }
+
+    async function fetchStatus() {
+        try {
+            const resp = await fetch('/api/caddy/status');
+            const data = await resp.json();
+            renderStatus(data);
+        } catch (e) {
+            console.error('Status check failed', e);
+        }
+    }
+
+    async function startCaddy() {
+        const btn = document.getElementById('start-btn');
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner"></span> 啟動中…`;
+        const resp = await fetch('/api/caddy/start', { method: 'POST' });
+        const data = await resp.json();
+        showToast(data.message, data.success ? 'success' : 'error');
+        btn.disabled = false;
+        btn.innerHTML = `${icon('play')} 啟動`;
+        fetchStatus();
+    }
+
+    async function stopCaddy() {
+        const btn = document.getElementById('stop-btn');
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner"></span> 停止中…`;
+        const resp = await fetch('/api/caddy/stop', { method: 'POST' });
+        const data = await resp.json();
+        showToast(data.message, data.success ? 'success' : 'error');
+        btn.disabled = false;
+        btn.innerHTML = `${icon('stop')} 停止`;
+        fetchStatus();
+    }
+
+    async function loadLogs() {
+        const viewer = document.getElementById('log-viewer');
+        viewer.innerHTML = '<span class="tunnel-log-placeholder">載入中…</span>';
+        try {
+            const resp = await fetch('/api/caddy/logs?n=50');
+            const data = await resp.json();
+            if (!data.logs || !data.logs.length) {
+                viewer.innerHTML = '<span class="tunnel-log-placeholder">尚無 Log 記錄</span>';
+                return;
+            }
+            viewer.innerHTML = data.logs.map(line => {
+                let cls = 'log-line';
+                const l = line.toLowerCase();
+                if (l.includes('error') || l.includes('err')) cls += ' log-line-error';
+                else if (l.includes('warn')) cls += ' log-line-warn';
+                else if (l.includes('inf') || l.includes('info')) cls += ' log-line-info';
+                return `<div class="${cls}">${escapeHtml(line)}</div>`;
+            }).join('');
+            viewer.scrollTop = viewer.scrollHeight;
+        } catch (e) {
+            viewer.innerHTML = '<span class="tunnel-log-placeholder">載入失敗</span>';
+        }
+    }
+
+    async function resetMode() {
+        if (!confirm('確定要重置並切換模式嗎？Caddy 將會停止。')) return;
+        const resp = await fetch('/api/reset', { method: 'POST' });
+        const data = await resp.json();
+        if (data.success) window.location.href = '/triage';
+        else showToast(data.message || '重置失敗', 'error');
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        renderIcons();
+        fetchStatus();
+        loadLogs();
+        setInterval(fetchStatus, 10000);
+        setInterval(loadLogs, 15000);
+    });
+</script>
+{% endblock %}

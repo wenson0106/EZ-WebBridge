@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}EZ-WebBridge — 選擇連線方式{% endblock %}
+
+{% block content %}
+<div class="triage-container">
+    <div class="triage-hero">
+        <div class="triage-logo">
+            <span class="triage-logo-icon" data-icon="globe"></span>
+        </div>
+        <h1 class="triage-title">EZ-WebBridge</h1>
+        <p class="triage-subtitle">讓我們決定最適合您的連線方式</p>
+    </div>
+
+    <div class="triage-question">
+        <div class="triage-question-icon" data-icon="helpCircle"></div>
+        <div>
+            <p class="triage-question-text">請問您擁有<strong>固定 IP (Static Public IP)</strong> 嗎？</p>
+            <p class="triage-question-hint">
+                固定 IP 就像是一個永久的門牌號碼。通常家用網路（如中華電信撥接）是浮動的；公司專線或雲端主機才會有固定 IP。
+                <br><strong>如果您不確定，通常代表您沒有。</strong>
+            </p>
+        </div>
+    </div>
+
+    <div class="triage-options">
+        <div class="triage-card recommended" onclick="selectMode('tunnel')">
+            <div class="triage-card-badge">🔥 推薦</div>
+            <div class="triage-card-icon">
+                <span data-icon="tunnel"></span>
+            </div>
+            <h2 class="triage-card-title">沒有 / 我不確定</h2>
+            <p class="triage-card-subtitle">Cloudflare Tunnel 穿透模式</p>
+            <ul class="triage-card-features">
+                <li><span data-icon="check"></span> 無需固定 IP</li>
+                <li><span data-icon="check"></span> 無需設定路由器</li>
+                <li><span data-icon="check"></span> 自動 HTTPS 加密</li>
+                <li><span data-icon="check"></span> 適合大多數使用者</li>
+            </ul>
+            <div class="triage-card-action">
+                <span class="btn btn-primary btn-full">
+                    選擇此方案
+                    <span data-icon="arrowRight"></span>
+                </span>
+            </div>
+        </div>
+
+        <div class="triage-card" onclick="selectMode('caddy')"
+            style="border-color:var(--color-accent); position:relative;">
+            <div class="triage-card-badge" style="background:#7c3aed;">⚡ Auto-HTTPS</div>
+            <div class="triage-card-icon">
+                <span data-icon="zap"></span>
+            </div>
+            <h2 class="triage-card-title">有固定 IP（輕量版）</h2>
+            <p class="triage-card-subtitle">Caddy 高效直連模式</p>
+            <ul class="triage-card-features">
+                <li><span data-icon="check"></span> 自動申請 Let's Encrypt</li>
+                <li><span data-icon="check"></span> 熱重載，不中斷服務</li>
+                <li><span data-icon="check"></span> 支援區網多服務轉發</li>
+                <li><span data-icon="check"></span> 比 Nginx 更輕量易用</li>
+            </ul>
+            <div class="triage-card-action">
+                <span class="btn btn-primary btn-full" style="background:linear-gradient(135deg,#7c3aed,#4f46e5);">
+                    選擇此方案
+                    <span data-icon="arrowRight"></span>
+                </span>
+            </div>
+        </div>
+
+        <div class="triage-card" onclick="selectMode('nginx')">
+            <div class="triage-card-icon">
+                <span data-icon="server"></span>
+            </div>
+            <h2 class="triage-card-title">有固定 IP（進階版）</h2>
+            <p class="triage-card-subtitle">Nginx 直連模式</p>
+            <ul class="triage-card-features">
+                <li><span data-icon="check"></span> 需要固定 IP</li>
+                <li><span data-icon="check"></span> 需自行設定路由器轉發</li>
+                <li><span data-icon="check"></span> 完整 Nginx 控制</li>
+                <li><span data-icon="check"></span> 適合進階使用者</li>
+            </ul>
+            <div class="triage-card-action">
+                <span class="btn btn-secondary btn-full">
+                    選擇此方案
+                    <span data-icon="arrowRight"></span>
+                </span>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function selectMode(mode) {
+        try {
+            const resp = await fetch('/api/mode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode }),
+            });
+            const result = await resp.json();
+
+            if (result.success) {
+                if (mode === 'tunnel') {
+                    window.location.href = '/tunnel/setup';
+                } else if (mode === 'caddy') {
+                    window.location.href = '/caddy/setup';
+                } else {
+                    window.location.href = '/setup';
+                }
+            } else {
+                showToast(result.message || '設定失敗', 'error');
+            }
+        } catch (e) {
+            showToast('網路錯誤，請重試', 'error');
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        renderIcons();
+    });
+</script>
+{% endblock %}

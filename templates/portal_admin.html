@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% block title %}EZ-Portal 管理 — EZ-WebBridge{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+    <div class="section-header">
+        <div>
+            <h1 class="section-title"><span data-icon="shield"></span> EZ-Portal 身分管理</h1>
+            <p class="section-subtitle">管理可存取受保護服務的帳號</p>
+        </div>
+        <button class="btn btn-primary" onclick="openAddModal()">
+            <span data-icon="plus"></span>新增帳號
+        </button>
+    </div>
+
+    <div class="data-card">
+        <table class="data-table" id="users-table">
+            <thead>
+                <tr>
+                    <th>使用者名稱</th>
+                    <th>角色</th>
+                    <th>建立時間</th>
+                    <th style="width:120px;">操作</th>
+                </tr>
+            </thead>
+            <tbody id="users-body">
+                <tr>
+                    <td colspan="4" class="table-placeholder">載入中…</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section-header" style="margin-top:32px;">
+        <div>
+            <h2 class="section-title" style="font-size:1.1rem;">管理員設定</h2>
+            <p class="section-subtitle">變更管理員密碼或登出</p>
+        </div>
+        <button class="btn btn-secondary" onclick="logout()">
+            <span data-icon="arrowLeft"></span>登出
+        </button>
+    </div>
+    <div class="data-card" style="padding:20px 24px;">
+        <div class="form-row">
+            <div class="form-group" style="flex:1;">
+                <label class="form-label">新密碼</label>
+                <input class="form-input" type="password" id="new-password" placeholder="••••••••">
+            </div>
+            <div class="form-group" style="flex:1;">
+                <label class="form-label">確認密碼</label>
+                <input class="form-input" type="password" id="confirm-password" placeholder="••••••••">
+            </div>
+            <button class="btn btn-primary" onclick="changePassword()" style="align-self:flex-end;">
+                <span data-icon="check"></span>更新密碼
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Add User Modal -->
+<div class="modal-overlay" id="add-modal" style="display:none;" onclick="closeModal('add-modal')">
+    <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title">新增帳號</h2>
+            <button class="modal-close" onclick="closeModal('add-modal')">
+                <span data-icon="x"></span>
+            </button>
+        </div>
+        <div class="form-group">
+            <label class="form-label">使用者名稱</label>
+            <input class="form-input" type="text" id="new-username" placeholder="guest">
+        </div>
+        <div class="form-group">
+            <label class="form-label">密碼</label>
+            <input class="form-input" type="password" id="new-user-password" placeholder="••••••••">
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:10px;">
+            <input type="checkbox" id="new-is-admin" style="width:16px;height:16px;">
+            <label for="new-is-admin" class="form-label" style="margin:0;">管理員權限</label>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('add-modal')">取消</button>
+            <button class="btn btn-primary" onclick="addUser()">
+                <span data-icon="plus"></span>新增
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function loadUsers() {
+        const resp = await fetch('/api/portal/users');
+        const data = await resp.json();
+        const tbody = document.getElementById('users-body');
+        if (!data.users || !data.users.length) {
+            tbody.innerHTML = '<tr><td colspan="4" class="table-placeholder">尚無帳號</td></tr>';
+            return;
+        }
+        tbody.innerHTML = data.users.map(u => `
+            <tr>
+                <td><strong>${escapeHtml(u.username)}</strong></td>
+                <td>${u.is_admin ? '<span class="mode-badge mode-badge-tunnel">管理員</span>' : '<span class="mode-badge">訪客</span>'}</td>
+                <td>${u.created_at ? new Date(u.created_at).toLocaleString('zh-TW') : '-'}</td>
+                <td>
+                    <button class="btn-icon" title="刪除" onclick="deleteUser(${u.id}, '${escapeHtml(u.username)}')">
+                        <span data-icon="trash"></span>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+        renderIcons();
+    }
+
+    function openAddModal() {
+        document.getElementById('add-modal').style.display = 'flex';
+    }
+
+    function closeModal(id) {
+        document.getElementById(id).style.display = 'none';
+    }
+
+    async function addUser() {
+        const username = document.getElementById('new-username').value.trim();
+        const password = document.getElementById('new-user-password').value;
+        const is_admin = document.getElementById('new-is-admin').checked;
+        if (!username || !password) { showToast('請填寫使用者名稱和密碼', 'error'); return; }
+        const resp = await fetch('/api/portal/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password, is_admin }),
+        });
+        const data = await resp.json();
+        showToast(data.message || (data.success ? '帳號已建立' : '建立失敗'), data.success ? 'success' : 'error');
+        if (data.success) { closeModal('add-modal'); loadUsers(); }
+    }
+
+    async function deleteUser(id, name) {
+        if (!confirm(`確定要刪除帳號「${name}」嗎？`)) return;
+        const resp = await fetch(`/api/portal/users/${id}`, { method: 'DELETE' });
+        const data = await resp.json();
+        showToast(data.message || (data.success ? '已刪除' : '刪除失敗'), data.success ? 'success' : 'error');
+        if (data.success) loadUsers();
+    }
+
+    async function changePassword() {
+        const pw = document.getElementById('new-password').value;
+        const confirm = document.getElementById('confirm-password').value;
+        if (!pw) { showToast('請輸入新密碼', 'error'); return; }
+        if (pw !== confirm) { showToast('兩次密碼不一致', 'error'); return; }
+        const resp = await fetch('/api/portal/change-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: pw }),
+        });
+        const data = await resp.json();
+        showToast(data.message || (data.success ? '密碼已更新' : '更新失敗'), data.success ? 'success' : 'error');
+    }
+
+    async function logout() {
+        await fetch('/portal/logout', { method: 'POST' });
+        window.location.href = '/portal/login';
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        renderIcons();
+        loadUsers();
+    });
+</script>
+
+<style>
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 20px;
+        gap: 16px;
+    }
+
+    .section-title {
+        font-size: 1.3rem;
+        font-weight: 700;
+        margin: 0 0 4px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .section-title svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    .section-subtitle {
+        color: var(--color-text-secondary);
+        font-size: .9rem;
+        margin: 0;
+    }
+
+    .data-card {
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: 14px;
+        overflow: hidden;
+    }
+
+    .table-placeholder {
+        color: var(--color-text-secondary);
+        text-align: center;
+        padding: 32px;
+    }
+
+    .btn-icon {
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 6px;
+        border-radius: 8px;
+        color: var(--color-text-secondary);
+    }
+
+    .btn-icon:hover {
+        background: var(--color-surface-hover);
+        color: #dc2626;
+    }
+
+    .btn-icon svg {
+        width: 16px;
+        height: 16px;
+    }
+
+    .form-row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: flex-end;
+    }
+</style>
+{% endblock %}
